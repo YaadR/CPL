@@ -70,5 +70,10 @@ plt.yscale('log')
 plt.xlabel('t', fontsize = 20)
 plt.ylabel('Prediction Loss', fontsize = 20)
 plt.grid()
+plt.legend()
+plt.title('Noisy Regression', fontsize = 20)
+plt.savefig('regression_f1.png', dpi=300, bbox_inches='tight')
+plt.show()
+
 
 
