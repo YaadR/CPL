@@ -201,7 +201,7 @@ if __name__ == "__main__":
     print(f"--- Training RL Agent for {problem_to_solve} using Homotopy Environment ---")
 
     # Create and wrap the environment
-    env = HomotopyEnv(problem_name=problem_to_solve, max_steps=500, t_increase_rate=1.0 / 500, action_scale=0.1)
+    env = HomotopyEnv(problem_name=problem_to_solve, max_steps=100, t_increase_rate=1.0 / 50, action_scale=3.0)
 
     # It's recommended to wrap the environment in a DummyVecEnv for SB3
     env = DummyVecEnv([lambda: env])
@@ -221,7 +221,7 @@ if __name__ == "__main__":
                 max_grad_norm=0.5)
 
     # Train the agent
-    total_timesteps = 10  # Adjust as needed
+    total_timesteps = 10000  # Adjust as needed
     print(f"Starting training for {total_timesteps} timesteps...")
     model.learn(total_timesteps=total_timesteps, progress_bar=True)
     print("Training finished.")
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     # model = PPO.load(model_path, env=env)
 
     obs = env.reset()
-    n_eval_episodes = 10
+    n_eval_episodes = 20000
     total_rewards = 0
     final_h_values = []
     final_x_values = []
@@ -249,6 +249,8 @@ if __name__ == "__main__":
     episode_data = []
     h_value_history = []  # Track H values to check for convergence
     convergence_threshold = 1e-5  # Define a threshold for minimal change in H
+    target_minimum_h = 0.0  # Expected minimum value for H
+    minimum_tolerance = 1e-6  # Tolerance around the target minimum for early stop
 
     print("Starting evaluation...")
     for episode in range(n_eval_episodes):
@@ -270,7 +272,8 @@ if __name__ == "__main__":
             x_history.append(last_info.get('x'))
             h_history.append(last_info.get('h_value'))
             # Access the underlying environment to call render_3d
-            env.envs[0].render_3d(x_history, h_history)  # Pass history for plotting
+            if env.envs[0].n_dim == 2:  # Only render if it's a 2D problem
+                env.envs[0].render_3d(x_history, h_history)  # Pass history for plotting
 
         total_rewards += episode_reward
         final_h_values.append(last_info.get('h_value', np.nan))
@@ -300,14 +303,20 @@ if __name__ == "__main__":
         # print(f"Eval Episode {episode+1}: Reward={episode_reward:.2f}, Final H={final_h_value:.4f}, Steps={step}")
         h_value_history.append(final_h_value)
 
-        # Check for convergence (stop if H value change is small)
+        # Check for early stop condition based on reaching the minimum
+        if final_h_value <= target_minimum_h + minimum_tolerance:
+            print(f"\n--- Early Stop Triggered ---")
+            print(f"Agent reached a value close to the minimum (H = {final_h_value:.6f}) after {episode + 1} episodes.")
+            break  # Exit the evaluation loop
+
+        # Check for convergence based on minimal change in H (optional, can be combined or separate)
         if len(h_value_history) > 1:
             h_change = np.abs(h_value_history[-1] - h_value_history[-2])
             if h_change < convergence_threshold:
-                print(f"Converged after {episode + 1} episodes.  Final H value: {final_h_value:.6f}")
+                print(f"Converged (minimal change in H) after {episode + 1} episodes. Final H value: {final_h_value:.6f}")
                 break  # Exit the evaluation loop
 
-    mean_reward = total_rewards / (episode + 1) # Use the correct number of episodes
+    mean_reward = total_rewards / (episode + 1) if (episode + 1) > 0 else 0.0 # Use the correct number of episodes
     mean_final_h = np.nanmean(final_h_values)
     std_final_h = np.nanstd(final_h_values)
 
@@ -319,33 +328,34 @@ if __name__ == "__main__":
     # --- Plotting ---
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
-    plt.plot(range(1, episode + 2), [data['final_h'] for data in episode_data], marker='o') # Use episode+1 for correct x axis
+    plt.plot(range(1, len(episode_data) + 1), [data['final_h'] for data in episode_data], marker='o') # Use len(episode_data) for correct x axis
     plt.xlabel('Episode')
     plt.ylabel('Final H(x, t=1)')
     plt.title('Final Homotopy Value vs Episode')
 
     plt.subplot(1, 2, 2)
-    plt.plot(range(1, episode + 2), [data['reward'] for data in episode_data], marker='o') # Use episode+1 for correct x axis
+    plt.plot(range(1, len(episode_data) + 1), [data['reward'] for data in episode_data], marker='o') # Use len(episode_data) for correct x axis
     plt.xlabel('Episode')
     plt.ylabel('Episode Reward')
     plt.title('Episode Reward vs Episode')
     plt.tight_layout()
     plt.show()
 
-    # Example of plotting the x trajectory for the last episode.
-    plt.figure(figsize=(12, 6))
-    plt.plot(np.array(episode_data[-1]['x_history']))
-    plt.xlabel('Step')
-    plt.ylabel('x value')
-    plt.title('X trajectory for the last episode')
-    plt.tight_layout()
-    plt.show()
+    # Example of plotting the x trajectory for the last episode if data exists.
+    if episode_data:
+        plt.figure(figsize=(12, 6))
+        plt.plot(np.array(episode_data[-1]['x_history']))
+        plt.xlabel('Step')
+        plt.ylabel('x value')
+        plt.title('X trajectory for the last episode')
+        plt.tight_layout()
+        plt.show()
 
-    # Example of plotting the H trajectory for the last episode.
-    plt.figure(figsize=(12, 6))
-    plt.plot(np.array(episode_data[-1]['h_history']))
-    plt.xlabel('Step')
-    plt.ylabel('H value')
-    plt.title('H trajectory for the last episode')
-    plt.tight_layout()
-    plt.show()
+        # Example of plotting the H trajectory for the last episode if data exists.
+        plt.figure(figsize=(12, 6))
+        plt.plot(np.array(episode_data[-1]['h_history']))
+        plt.xlabel('Step')
+        plt.ylabel('H value')
+        plt.title('H trajectory for the last episode')
+        plt.tight_layout()
+        plt.show()
